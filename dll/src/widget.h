@@ -1,0 +1,479 @@
+#pragma once
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+
+// Base class for every retained-mode widget.
+// Lives in the persistent tree; touched by both threads under WidgetTree::mtx.
+//
+// Hierarchy: every Widget can own a list of children. Container widgets
+// (Child, TabBar, TabItem, CollapsingHeader, TreeNode, Group) walk their
+// `children` inside their Render() between Begin/End. Leaf widgets simply
+// leave `children` empty. The `parent` back-pointer is non-owning — the
+// ownership tree is the chain of `children` vectors rooted in
+// WidgetTree::roots.
+struct Widget {
+    std::string id;          // stable user-provided key (UTF-8)
+    std::string label;       // displayed text (UTF-8)
+    bool        visible = true;
+    bool        enabled = true;
+
+    // Item query state — latched at the end of each frame by
+    // RenderAndQueryState() via ImGui::IsItem*() calls right after the
+    // widget rendered its primary ImGui item. Read from the AutoIt thread
+    // through ImGui_IsHovered/IsActive/IsFocused. Reset to false when the
+    // widget is hidden (so a hidden widget never reports "hovered").
+    bool        is_hovered = false;
+    bool        is_active  = false;
+    bool        is_focused = false;
+
+    // Extended frame-state queries (D.1). All read-only: they reflect the
+    // state during the LAST frame the widget rendered, refreshed every frame.
+    // Unlike ConsumeClick/ConsumeChanged, none of these are consumed on read —
+    // the latch is "what was the value when Render() last ran". Reset to
+    // false / 0 when the widget is hidden, same rule as the trio above.
+    bool        is_clicked               = false;   // ImGui::IsItemClicked() — left mouse only
+    bool        is_edited                = false;   // ImGui::IsItemEdited() — frame on which value changed
+    bool        is_activated             = false;   // ImGui::IsItemActivated() — edge frame
+    bool        is_deactivated           = false;   // ImGui::IsItemDeactivated() — edge frame
+    bool        is_deactivated_after_edit = false;  // ImGui::IsItemDeactivatedAfterEdit()
+    bool        is_visible               = false;   // ImGui::IsItemVisible()
+
+    // Bounding rect of the last rendered item, in ImGui screen-space coordinates.
+    // rect_size is derived as (max - min) at query time (no separate storage).
+    float       rect_min_x = 0.0f, rect_min_y = 0.0f;
+    float       rect_max_x = 0.0f, rect_max_y = 0.0f;
+
+    // Optional tooltip — empty = no tooltip. When non-empty AND the widget
+    // is hovered after Render(), an ImGui::SetTooltip() shows the string.
+    // Set from AutoIt via ImGui_SetTooltip ; the string is UTF-8.
+    std::string tooltip;
+
+    std::vector<std::unique_ptr<Widget>> children;
+    Widget*     parent = nullptr;  // nullptr ⇒ at root (under the host window)
+
+    virtual ~Widget() = default;
+    virtual void Render() = 0;
+
+    // Calls Render() then latches the IsItem* queries against the last ImGui
+    // item produced by Render(). Used by containers when walking their
+    // children and by the render thread for top-level roots. Non-virtual on
+    // purpose — every widget gets identical query semantics, only Render()
+    // differs between widget types.
+    void RenderAndQueryState();
+
+    // Read+reset the latched "clicked" flag. Returns true exactly once per
+    // click. Default implementation is false (widgets that aren't clickable).
+    // Overridden by ClickableWidget below.
+    virtual bool ConsumeClick() { return false; }
+
+    // Polymorphic bool-value accessors. Default -1/false signals "not a
+    // bool-valued widget"; BoolValueWidget below overrides them. Same dispatch
+    // pattern as ConsumeClick — a single C-ABI export per operation routes
+    // generically through the virtual table.
+    virtual int  GetValueBool() const          { return -1; }
+    virtual bool SetValueBool(bool v)          { (void)v; return false; }
+
+    // Polymorphic numeric accessors. Float and int are out-param based because
+    // (unlike bool) there's no valid sentinel value — the return bool says
+    // "this widget holds a value of that type". Default false on Widget, the
+    // FloatValueWidget / IntValueWidget mixins override.
+    virtual bool GetValueFloat(float* out) const { (void)out; return false; }
+    virtual bool SetValueFloat(float v)          { (void)v;   return false; }
+    virtual bool GetValueInt  (int* out)   const { (void)out; return false; }
+    virtual bool SetValueInt  (int v)            { (void)v;   return false; }
+
+    // K.2 — Double precision variant for InputDouble. Distinct from Float
+    // because the storage type differs (double vs float, 8 vs 4 bytes) and
+    // ImGui::InputDouble takes a double* directly.
+    virtual bool GetValueDouble(double* out) const { (void)out; return false; }
+    virtual bool SetValueDouble(double v)          { (void)v;   return false; }
+
+    // String accessor pair — used by InputText / InputTextMultiline. Return
+    // bool means "I'm a string-valued widget" (false on every other widget).
+    // The out-param is a std::string filled with the current UTF-8 buffer
+    // contents (excluding null). Marshalling to UTF-16 is the C-ABI's job.
+    virtual bool GetValueString(std::string& out) const { (void)out; return false; }
+    virtual bool SetValueString(const std::string& v)   { (void)v;   return false; }
+
+    // Float/Int vector accessors — used by SliderFloat2/3/4, DragInt2/3/4,
+    // etc. The return value is the number of components actually written
+    // (1, 2, 3 or 4) or 0 if this widget isn't a vector of that type. The
+    // caller passes `max_n` = its receiving buffer's capacity ; the widget
+    // writes up to min(N, max_n) components.
+    //
+    // For setters, `n` must match the widget's component count exactly —
+    // we don't truncate or extend (caller's responsibility to pass the right
+    // shape). Returns true on success.
+    virtual int  GetValueFloatN(float* out, int max_n) const { (void)out; (void)max_n; return 0; }
+    virtual bool SetValueFloatN(const float* in, int n)       { (void)in;  (void)n;     return false; }
+    virtual int  GetValueIntN  (int* out,   int max_n) const { (void)out; (void)max_n; return 0; }
+    virtual bool SetValueIntN  (const int* in,   int n)       { (void)in;  (void)n;     return false; }
+
+    // Read+reset the latched "value changed" flag. Set only by user-driven
+    // interaction inside Render() (e.g. ImGui::Checkbox returning true).
+    // Programmatic SetValue* from AutoIt deliberately does NOT latch this
+    // flag — mirrors ConsumeClick semantics so the bot doesn't see its own
+    // writes as notifications.
+    virtual bool ConsumeChanged() { return false; }
+
+    // True for widgets that must be rendered OUTSIDE the host window's
+    // Begin/End (top-level floating ImGui windows). The render thread does
+    // two passes through g_tree.roots: first non-top-level (inside host),
+    // then top-level (after host End). WindowWidget overrides this.
+    virtual bool IsTopLevelWindow() const { return false; }
+
+    // True for widgets that must be rendered BEFORE the host (specifically:
+    // MainMenuBar, which reserves space at the top of the main viewport via
+    // viewport->WorkOffsetMin so the host can then position itself at
+    // viewport->WorkPos and stay below the menu bar). The render thread runs
+    // a tiny pre-pass over g_tree.roots for these, ahead of the host's Pass 1.
+    virtual bool IsMainMenuBar() const { return false; }
+
+    // H.1 — Scroll state hook. Returns a pointer to a ScrollableState for
+    // widgets that own a scrollable region (Window, Child) ; nullptr otherwise.
+    // Used by the _ImGui_GetScroll* / _ImGui_SetScroll* exports to route their
+    // calls without dynamic_cast. The struct is defined in window_widget.h
+    // (forward-declared here to avoid a cyclic include).
+    virtual struct ScrollableState* GetScrollable() { return nullptr; }
+};
+
+// Intermediate base for any widget whose ImGui counterpart returns bool to
+// signal a click/activation (Button, SmallButton, RadioButton, MenuItem,
+// Selectable, …). They all share the same latch+consume semantics.
+struct ClickableWidget : Widget {
+    bool clicked = false;
+    bool ConsumeClick() override {
+        const bool v = clicked;
+        clicked = false;
+        return v;
+    }
+};
+
+// Intermediate base for widgets that hold a single bool value (Checkbox today;
+// later: any widget with a bool* binding). Render() is responsible for setting
+// `changed = true` when the user toggles via ImGui.
+struct BoolValueWidget : Widget {
+    bool value   = false;
+    bool changed = false;
+    int  GetValueBool() const override { return value ? 1 : 0; }
+    bool SetValueBool(bool v) override { value = v; return true; }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+// Symmetric numeric mixins. Concrete widgets (SliderFloat, DragInt, …) inherit
+// the relevant one and add their own constant parameters (min/max/format/etc).
+// As with BoolValueWidget, Render() latches `changed` only on user interaction.
+struct FloatValueWidget : Widget {
+    float value   = 0.0f;
+    bool  changed = false;
+    bool  GetValueFloat(float* out) const override { if (out) *out = value; return true; }
+    bool  SetValueFloat(float v)          override { value = v; return true; }
+    bool  ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+struct IntValueWidget : Widget {
+    int  value   = 0;
+    bool changed = false;
+    bool GetValueInt(int* out) const override { if (out) *out = value; return true; }
+    bool SetValueInt(int v)          override { value = v; return true; }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+// K.2 — Double value base for InputDouble. Same shape as FloatValueWidget but
+// stores a `double` ; needed because ImGui::InputDouble takes a double* not
+// a float* and storing a double through a float loses precision.
+struct DoubleValueWidget : Widget {
+    double value   = 0.0;
+    bool   changed = false;
+    bool GetValueDouble(double* out) const override { if (out) *out = value; return true; }
+    bool SetValueDouble(double v)          override { value = v; return true; }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+// Vector value mixins — used by SliderFloat2/3/4, DragInt2/3/4, etc.
+// Templated on the component count N so a single definition gives all three
+// arities. Storage is a fixed-size array; Render() in concrete widgets (e.g.
+// SliderFloat3Widget) calls the matching ImGui overload that takes a float*
+// and N components.
+template<int N>
+struct FloatVecValueWidget : Widget {
+    float values[N] = {};
+    bool  changed   = false;
+    int  GetValueFloatN(float* out, int max_n) const override {
+        if (!out || max_n < N) return 0;
+        for (int i = 0; i < N; ++i) out[i] = values[i];
+        return N;
+    }
+    bool SetValueFloatN(const float* in, int n) override {
+        if (!in || n != N) return false;
+        for (int i = 0; i < N; ++i) values[i] = in[i];
+        return true;
+    }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+template<int N>
+struct IntVecValueWidget : Widget {
+    int  values[N] = {};
+    bool changed   = false;
+    int  GetValueIntN(int* out, int max_n) const override {
+        if (!out || max_n < N) return 0;
+        for (int i = 0; i < N; ++i) out[i] = values[i];
+        return N;
+    }
+    bool SetValueIntN(const int* in, int n) override {
+        if (!in || n != N) return false;
+        for (int i = 0; i < N; ++i) values[i] = in[i];
+        return true;
+    }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+using FloatVec2ValueWidget = FloatVecValueWidget<2>;
+using FloatVec3ValueWidget = FloatVecValueWidget<3>;
+using FloatVec4ValueWidget = FloatVecValueWidget<4>;
+using IntVec2ValueWidget   = IntVecValueWidget<2>;
+using IntVec3ValueWidget   = IntVecValueWidget<3>;
+using IntVec4ValueWidget   = IntVecValueWidget<4>;
+
+// Base for widgets that hold a user-edited string (InputText today,
+// InputTextMultiline too — both keep the same buffer/changed/flags state and
+// only differ in their Render() call). The buffer is sized at creation time
+// (`max_length + 1`, null-included) and never grows — that's the ImGui::InputText
+// contract. Strict-changed semantics: SetValueString from AutoIt does NOT latch.
+struct StringValueWidget : Widget {
+    std::vector<char> buffer;     // utf-8 (null-terminated), capacity = max_length + 1
+    int               flags = 0;  // ImGuiInputTextFlags
+    bool              changed = false;
+
+    bool GetValueString(std::string& out) const override {
+        // strnlen-style — stop at null or buffer end.
+        const char* data = buffer.data();
+        size_t      n    = 0;
+        const size_t cap = buffer.size();
+        while (n < cap && data[n] != '\0') ++n;
+        out.assign(data, n);
+        return true;
+    }
+    bool SetValueString(const std::string& v) override {
+        if (buffer.empty()) return true;
+        const size_t cap = buffer.size();
+        const size_t n   = (v.size() >= cap) ? cap - 1 : v.size();
+        std::memcpy(buffer.data(), v.data(), n);
+        buffer[n] = '\0';
+        // No `changed = true` — strict semantics, programmatic write doesn't notify.
+        return true;
+    }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+// Static (but mutable from AutoIt) text label. The displayed string lives in
+// Widget::label; SetText() updates it under g_tree.mtx.
+struct TextWidget : Widget {
+    void Render() override;
+};
+
+// Shared base for widgets that present "select one of N items" — List (inline
+// scrollable selectable list) and Combo (dropdown popup). Stores the items
+// buffer + selected_index + by-content snapshot for preservation across
+// ApplyItems() calls.
+//
+// Strict-changed semantics: programmatic SetValueInt or ApplyItems never
+// latch `changed`. Only a user click in Render() does.
+struct IndexedSelectionWidget : Widget {
+    std::vector<std::string> items;
+    int                      selected_index = -1;
+    std::string              selected_value;   // snapshot for by-content remap
+    bool                     changed = false;
+
+    // Replace the entire item set, preserving the user's selection by content
+    // when possible (the previously-selected string is remapped to its new
+    // index; if it's gone, selection clears).
+    void ApplyItems(std::vector<std::string> new_items);
+
+    // Selection exposed as the widget's int value — _ImGui_GetValueInt is a
+    // usable alias for _ImGui_GetListSelection on both List and Combo.
+    bool GetValueInt(int* out) const override { if (out) *out = selected_index; return true; }
+    bool SetValueInt(int v)          override;
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+};
+
+// Dynamic-content inline list. Each row is rendered as an ImGui::Selectable
+// inside a BeginChild keyed on the widget id, so scroll and per-row interaction
+// state survive item-set changes.
+struct ListWidget : IndexedSelectionWidget {
+    float size_x = 0.0f;   // 0 = fill available
+    float size_y = 0.0f;   // 0 = fill available
+    void Render() override;
+};
+
+// Dropdown combo. Same model as ListWidget but Render() uses
+// ImGui::BeginCombo/EndCombo so the items appear as a popup below the
+// closed preview box.
+struct ComboWidget : IndexedSelectionWidget {
+    int flags = 0;   // ImGuiComboFlags
+    void Render() override;
+};
+
+// Single-line text input. Wraps ImGui::InputText. The buffer is allocated
+// once at creation (max_length + 1) — that's the ImGui contract.
+struct InputTextWidget : StringValueWidget {
+    void Render() override;
+};
+
+// Multi-line text input. Same model as InputTextWidget plus a size_x/size_y
+// for the rendered box. (0, 0) lets ImGui pick a default size based on the
+// available content region.
+struct InputTextMultilineWidget : StringValueWidget {
+    float size_x = 0.0f;
+    float size_y = 0.0f;
+    void Render() override;
+};
+
+// Radio button — visual radio bullet with a persistent `active` state. The
+// user manages exclusivity from the script (when one is clicked, write False
+// on the others via _ImGui_SetValueBool). Inherits ClickableWidget for the
+// click latch ; overrides Get/SetValueBool to expose the visual `active`
+// state as a bool. Strict semantics — programmatic SetValueBool doesn't
+// latch `clicked`.
+struct RadioButtonWidget : ClickableWidget {
+    bool active = false;
+
+    int  GetValueBool() const override { return active ? 1 : 0; }
+    bool SetValueBool(bool v) override { active = v; return true; }
+    void Render() override;
+};
+
+// CheckboxFlags — toggles a single bit of an int value mask. Useful for
+// settings dialogs where one int holds multiple boolean flags. The widget
+// stores the FULL mask (read via _ImGui_GetValueInt) and the bit it operates
+// on (`flags_value`, constant at creation). Clicking flips that one bit.
+struct CheckboxFlagsWidget : Widget {
+    int  value       = 0;   // full mask — read with _ImGui_GetValueInt
+    int  flags_value = 0;   // the bit (or combination) this checkbox toggles
+    bool changed     = false;
+
+    int  GetValueBool() const override {
+        // True iff all the bits in flags_value are set in value.
+        return ((value & flags_value) == flags_value) ? 1 : 0;
+    }
+    bool GetValueInt(int* out) const override { if (out) *out = value; return true; }
+    bool SetValueInt(int v)          override { value = v; return true; }
+    bool SetValueBool(bool v)        override {
+        if (v) value |= flags_value;
+        else   value &= ~flags_value;
+        return true;
+    }
+    bool ConsumeChanged() override {
+        const bool c = changed;
+        changed = false;
+        return c;
+    }
+    void Render() override;
+};
+
+// ProgressBar — display widget showing a fraction [0, 1] as a horizontal
+// filled bar with an optional centered overlay text. Inherits FloatValueWidget
+// for the value storage + getter/setter (no `changed` flag latching ; it's a
+// display widget, the user writes the value, never the other way around).
+struct ProgressBarWidget : FloatValueWidget {
+    float       size_x = -1.0f;   // <0 = stretch to available width (-FLT_MIN behavior)
+    float       size_y = 0.0f;    // 0  = ImGui default height
+    std::string overlay;          // optional centered text ; empty = "%d%%"
+    void Render() override;
+};
+
+// Shared base for line plots and histograms. Stores a vector of floats and
+// scale info. Updates : the script pushes a new array via _ImGui_SetPlotValues
+// at its own cadence (e.g. once per second for a CPU-usage trace). Display-only.
+struct PlotBaseWidget : Widget {
+    std::vector<float> values;
+    float       scale_min = 3.402823466e+38f;   // FLT_MAX = auto-scale
+    float       scale_max = 3.402823466e+38f;
+    float       size_x    = 0.0f;
+    float       size_y    = 60.0f;
+    std::string overlay;
+};
+
+struct PlotLinesWidget     : PlotBaseWidget { void Render() override; };
+struct PlotHistogramWidget : PlotBaseWidget { void Render() override; };
+
+// Selectable — hybrid widget : a clickable item that also carries a persistent
+// "selected" state. Inherits BoolValueWidget so `value` is the selected flag
+// (read with _ImGui_GetValueBool, written with _ImGui_SetValueBool, latched
+// on user toggle via the inherited `changed`). Adds its own `clicked` flag
+// so _ImGui_WasClicked also works — a click event distinct from a state
+// change is useful when the script wants to react to "user clicked it again"
+// (re-confirmation) without tracking the previous selected state.
+//
+// Strict semantics carry over : SetValueBool from AutoIt never latches
+// `changed` or `clicked` ; only ImGui::Selectable returning true in Render()
+// does (both flags latched together when the user clicks).
+struct SelectableWidget : BoolValueWidget {
+    bool  clicked = false;
+    int   flags   = 0;     // ImGuiSelectableFlags
+    float size_x  = 0.0f;
+    float size_y  = 0.0f;
+
+    bool ConsumeClick() override {
+        const bool v = clicked;
+        clicked = false;
+        return v;
+    }
+    void Render() override;
+};
+
+// MenuItemWidget (D.5) — clickable menu entry with an optional shortcut hint
+// (displayed right-aligned, e.g. "Ctrl+S") and a persistent selected state
+// (checkmark to the left when true). Same double-latch model as Selectable:
+// inherits BoolValueWidget for `value` (= selected) + `changed`, adds its own
+// `clicked` flag so _ImGui_WasClicked still works for action-style menu items
+// where the toggle state isn't meaningful (e.g. "Save", "Quit").
+//
+// The bool* overload of ImGui::MenuItem flips `value` on user click. Programmatic
+// SetValueBool never latches `clicked`/`changed` (strict semantics).
+struct MenuItemWidget : BoolValueWidget {
+    std::string shortcut;     // empty = no shortcut hint
+    bool        clicked = false;
+
+    bool ConsumeClick() override {
+        const bool v = clicked;
+        clicked = false;
+        return v;
+    }
+    void Render() override;
+};

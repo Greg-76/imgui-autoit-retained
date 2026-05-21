@@ -1,0 +1,5 @@
+dll/build/
+*.user
+*.suo
+.vs/
+out/
