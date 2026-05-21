@@ -5,7 +5,7 @@
 
 // Owns the Win32 window, the DX11 device, the ImGui context and the
 // per-frame loop. Lives in its own native thread so AutoIt's single thread
-// remains free to run the bot loop.
+// remains free to run the script's own loop.
 class RenderThread {
 public:
     // Spawns the thread, waits for it to finish creating the window+device,

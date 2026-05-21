@@ -135,7 +135,7 @@ void WindowWidget::Render()
     ImGui::End();
 }
 
-// ---- ChildWidget (H.1, sortie du générateur) -------------------------------
+// ---- ChildWidget (H.1, split out from the generator) -----------------------
 
 void ChildWidget::Render()
 {

@@ -225,7 +225,7 @@ void RenderThread::ThreadProc(std::wstring title, int width, int height)
     // become their own OS-level windows. Backend support is built into
     // imgui_impl_win32 + imgui_impl_dx11 on the docking branch.
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    io.IniFilename = nullptr; // don't write imgui.ini next to the bot script
+    io.IniFilename = nullptr; // don't write imgui.ini next to the AutoIt script
     ImGui::StyleColorsDark();
 
     // When viewports are enabled, ImGui recommends opaque window backgrounds
@@ -247,10 +247,9 @@ void RenderThread::ThreadProc(std::wstring title, int width, int height)
     style.ScaleAllSizes(dpi_scale);
     style.FontScaleDpi = dpi_scale;
 
-    // Match the font of thedemons/imgui-autoit so existing GW bot UIs look
-    // identical when ported to this DLL: Calibri 15.5pt with Vietnamese
-    // glyph range. Falls back to ImGui's embedded default if Calibri is
-    // missing (e.g. trimmed Windows install).
+    // Default font: Calibri 15.5pt with Vietnamese glyph range. Falls back
+    // to ImGui's embedded default if Calibri is missing (e.g. trimmed
+    // Windows install).
     io.Fonts->Clear();
     const ImWchar* glyph_range = io.Fonts->GetGlyphRangesVietnamese();
     if (!io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\calibri.ttf)",

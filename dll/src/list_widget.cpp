@@ -65,7 +65,7 @@ void IndexedSelectionWidget::ApplyItems(std::vector<std::string> new_items)
 bool IndexedSelectionWidget::SetValueInt(int v)
 {
     // Clamp: -1 clears, valid index sets, out-of-range clears (defensive — the
-    // bot might write the index before pushing the matching items). No latch.
+    // caller might write the index before pushing the matching items). No latch.
     if (v < 0 || v >= static_cast<int>(items.size())) {
         selected_index = -1;
         selected_value.clear();

@@ -65,7 +65,7 @@ IMGUI_API_EXPORT int __cdecl ImGui_SetFontGlobalScale(float scale)
 // Caps the render thread's frame rate when the host window doesn't have
 // keyboard/mouse focus. Clamped to [1, 60] inside the render thread. Default
 // is 20 fps â€” sensible middle ground in the framing doc's 10-30 range, drops
-// CPU/GPU enough that 6-8 idle bot panels coexist comfortably.
+// CPU/GPU enough that 6-8 idle panels coexist comfortably.
 // Returns: 0 = OK. The call is always accepted (no init required) â€” the
 // render thread reads the atomic on the next loop iteration.
 namespace render_thread {
@@ -174,7 +174,7 @@ IMGUI_API_EXPORT int __cdecl ImGui_GetVersion(wchar_t* out, int cap)
 
 // Settings persistence (D.4) â€” explicit opt-in helpers around ImGui's
 // LoadIniSettingsFromDisk / SaveIniSettingsToDisk. `io.IniFilename = nullptr`
-// stays in the init so there's no auto-save next to the bot script ; callers
+// stays in the init so there's no auto-save next to the AutoIt script ; callers
 // pick when to load/save and to which path.
 //
 // Load semantics: the loaded settings populate ImGui's internal cache and
@@ -719,7 +719,7 @@ static int CreateStringWidget(std::unique_ptr<StringValueWidget> widget,
     std::string udef = WideToUtf8(default_value ? default_value : L"");
     if (uid.empty()) return 1;
     if (max_length < 1) max_length = 1;          // need at least the null
-    // Cap unreasonable sizes â€” a bot panel rarely needs a 16 MB buffer.
+    // Cap unreasonable sizes â€” a UI panel rarely needs a 16 MB buffer.
     if (max_length > 64 * 1024 * 1024) max_length = 64 * 1024 * 1024;
 
     widget->id    = uid;

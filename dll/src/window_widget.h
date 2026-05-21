@@ -110,10 +110,10 @@ struct WindowWidget : Widget {
     bool IsTopLevelWindow() const override { return true; }
 };
 
-// H.1 — ChildWidget hand-written (sortie du générateur, comme TreeNode/Tab/Popup).
-// Sortie pour pouvoir embarquer ScrollableState — le pattern conditional_children_always_end
-// du générateur ne permet pas d'injecter code avant End. Render() mappe une-pour-une
-// l'ancien container generator (3 params w/h/border, EndChild toujours appelé).
+// H.1 — ChildWidget hand-written (split out from the generator, like TreeNode/Tab/Popup).
+// Split out to allow embedding ScrollableState — the generator's conditional_children_always_end
+// pattern doesn't allow injecting code before End. Render() maps one-to-one to
+// the old container generator (3 params w/h/border, EndChild always called).
 struct ChildWidget : Widget {
     float w      = 0.0f;
     float h      = 0.0f;

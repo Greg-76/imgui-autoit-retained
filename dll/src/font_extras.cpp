@@ -108,7 +108,7 @@ API_EXPORT int __cdecl ImGui_LoadFont(const wchar_t* path, float size_px, int* o
 
     ImGuiIO& io = ImGui::GetIO();
     // AddFontFromFileTTF without explicit glyph range = ImGui default (Latin).
-    // Sufficient for typical bot panels ; non-Latin scripts can be added later
+    // Sufficient for typical UI panels ; non-Latin scripts can be added later
     // via a glyph-range variant if needed.
     ImFont* font = io.Fonts->AddFontFromFileTTF(utf8_path.c_str(), size_px);
     if (!font) return 2;

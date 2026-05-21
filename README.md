@@ -43,9 +43,7 @@ imgui-autoit-retained/
 │       └── generate.py     ← codegen for widget categories
 └── autoit/
     ├── imgui_retained.au3  ← wrapper (selects dll/bin/<arch>/ via @AutoItX64)
-    ├── imgui_generated.au3 ← auto-generated AutoIt API
-    ├── tests/              ← test_*.au3 + smoke_test.au3 + concurrency_test.au3
-    └── exemples/           ← example_*.au3 (e.g. example_bot_panel.au3)
+    └── imgui_generated.au3 ← auto-generated AutoIt API
 ```
 
 ImGui is vendored in `dll/imgui-docking/` (the docking branch of ImGui,
@@ -83,22 +81,14 @@ dependency on target machines.
 
 ```bat
 :: With the x86 interpreter
-"C:\Program Files (x86)\AutoIt3\AutoIt3.exe"     autoit\tests\test_button.au3
+"C:\Program Files (x86)\AutoIt3\AutoIt3.exe"     autoit\your_script.au3
 
 :: With the x64 interpreter
-"C:\Program Files (x86)\AutoIt3\AutoIt3_x64.exe" autoit\tests\test_button.au3
+"C:\Program Files (x86)\AutoIt3\AutoIt3_x64.exe" autoit\your_script.au3
 ```
 
 The same script works under either interpreter — `@AutoItX64` routes the
 DllCall to the matching architecture.
-
-Success criteria covered by the initial step:
-
-1. A button is displayed, with no ImGui loop in the script.
-2. The script's `Sleep(200)` in its main loop does not freeze the UI (the
-   render thread runs independently).
-3. The other criteria (multi-widget, visibility, lists, multi-instance,
-   concurrency stress) are addressed by the later phases.
 
 ## Exported API
 
@@ -268,6 +258,261 @@ Success criteria covered by the initial step:
 | `ImGui_SetPlotValues`            | `int(id, const float* in, int n)`                           | 0 = OK, 1, 2, 3                       |
 | `ImGui_SetPlotScale`             | `int(id, float smin, float smax)`                           | 0 = OK, 1, 2, 3                       |
 
+### Additional exports
+
+The exports below complete the API surface (134 entries). Same `__cdecl`
+convention and UTF-16 marshalling as the core table above. Grouped by
+feature for readability.
+
+#### Vector value widgets (Slider/Drag/Input × 2/3/4 components)
+
+| Symbol | Signature (C, `__cdecl`) | Return |
+|--------|---------------------------|--------|
+| `ImGui_CreateSliderFloat2`*      | `int(id, label, float v_min, float v_max, float def_0, float def_1, const wchar_t* fmt)`                                               | 0=OK, 1, 2 — read via `GetValueFloatN($id, 2)` |
+| `ImGui_CreateSliderFloat3`*      | `int(id, label, float v_min, float v_max, float def_0..2, const wchar_t* fmt)`                                                          | 0=OK, 1, 2 — read via `GetValueFloatN($id, 3)` |
+| `ImGui_CreateSliderFloat4`*      | `int(id, label, float v_min, float v_max, float def_0..3, const wchar_t* fmt)`                                                          | 0=OK, 1, 2 — read via `GetValueFloatN($id, 4)` |
+| `ImGui_CreateSliderInt2`*        | `int(id, label, int v_min, int v_max, int def_0, int def_1, const wchar_t* fmt)`                                                        | 0=OK, 1, 2 — read via `GetValueIntN($id, 2)`   |
+| `ImGui_CreateSliderInt3`*        | `int(id, label, int v_min, int v_max, int def_0..2, const wchar_t* fmt)`                                                                | 0=OK, 1, 2 — read via `GetValueIntN($id, 3)`   |
+| `ImGui_CreateSliderInt4`*        | `int(id, label, int v_min, int v_max, int def_0..3, const wchar_t* fmt)`                                                                | 0=OK, 1, 2 — read via `GetValueIntN($id, 4)`   |
+| `ImGui_CreateDragFloat2`*        | `int(id, label, float v_speed, float v_min, float v_max, float def_0, float def_1, const wchar_t* fmt)`                                  | 0=OK, 1, 2 |
+| `ImGui_CreateDragFloat3`*        | `int(id, label, float v_speed, float v_min, float v_max, float def_0..2, const wchar_t* fmt)`                                            | 0=OK, 1, 2 |
+| `ImGui_CreateDragFloat4`*        | `int(id, label, float v_speed, float v_min, float v_max, float def_0..3, const wchar_t* fmt)`                                            | 0=OK, 1, 2 |
+| `ImGui_CreateDragInt2`*          | `int(id, label, float v_speed, int v_min, int v_max, int def_0, int def_1, const wchar_t* fmt)`                                          | 0=OK, 1, 2 |
+| `ImGui_CreateDragInt3`*          | `int(id, label, float v_speed, int v_min, int v_max, int def_0..2, const wchar_t* fmt)`                                                  | 0=OK, 1, 2 |
+| `ImGui_CreateDragInt4`*          | `int(id, label, float v_speed, int v_min, int v_max, int def_0..3, const wchar_t* fmt)`                                                  | 0=OK, 1, 2 |
+| `ImGui_CreateInputFloat2`*       | `int(id, label, float def_0, float def_1, const wchar_t* fmt)`                                                                            | 0=OK, 1, 2 |
+| `ImGui_CreateInputFloat3`*       | `int(id, label, float def_0..2, const wchar_t* fmt)`                                                                                      | 0=OK, 1, 2 |
+| `ImGui_CreateInputFloat4`*       | `int(id, label, float def_0..3, const wchar_t* fmt)`                                                                                      | 0=OK, 1, 2 |
+| `ImGui_CreateInputInt2`*         | `int(id, label, int def_0, int def_1)`                                                                                                    | 0=OK, 1, 2 |
+| `ImGui_CreateInputInt3`*         | `int(id, label, int def_0..2)`                                                                                                            | 0=OK, 1, 2 |
+| `ImGui_CreateInputInt4`*         | `int(id, label, int def_0..3)`                                                                                                            | 0=OK, 1, 2 |
+
+#### Color widgets (E.2)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateColorEdit3`*        | `int(id, label, float def_r, float def_g, float def_b, int flags)`                                | 0=OK, 1, 2 — read via `GetValueFloatN($id, 3)` |
+| `ImGui_CreateColorEdit4`*        | `int(id, label, float def_r, float def_g, float def_b, float def_a, int flags)`                  | 0=OK, 1, 2 — read via `GetValueFloatN($id, 4)` |
+| `ImGui_CreateColorPicker3`*      | `int(id, label, float def_r, float def_g, float def_b, int flags)`                                | 0=OK, 1, 2 |
+| `ImGui_CreateColorPicker4`*      | `int(id, label, float def_r, float def_g, float def_b, float def_a, int flags)`                  | 0=OK, 1, 2 |
+
+#### Text variants
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateTextColored`*       | `int(id, text, float r, float g, float b, float a)`                  | 0=OK, 1, 2 |
+| `ImGui_CreateTextDisabled`*      | `int(id, text)`                                                       | 0=OK, 1, 2 |
+| `ImGui_CreateTextWrapped`*       | `int(id, text)`                                                       | 0=OK, 1, 2 |
+| `ImGui_CreateBulletText`*        | `int(id, text)`                                                       | 0=OK, 1, 2 |
+| `ImGui_CreateLabelText`*         | `int(id, text, extra_key)`                                            | 0=OK, 1, 2 — `key:value` row |
+| `ImGui_CreateSeparatorText`*     | `int(id, text)`                                                       | 0=OK, 1, 2 |
+
+#### Button extras
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateArrowButton`*       | `int(id, label, int dir)`                                             | 0=OK, 1, 2 — dir = `$ImGuiDir_*` |
+| `ImGui_CreateInvisibleButton`*   | `int(id, label, float w, float h)`                                    | 0=OK, 1, 2 |
+| `ImGui_CreateTextLink`*          | `int(id, label)`                                                      | 0=OK, 1, 2 — read click via `WasClicked` |
+| `ImGui_CreateTextLinkOpenURL`    | `int(id, label, url)`                                                 | 0=OK, 1, 2 — http/https only ; other schemes ignored (L.2) |
+
+#### Images / textures (H.4)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_LoadTexture`              | `int(const wchar_t* path, int* out_w, int* out_h, int* out_err)`      | 0=OK, returns tex_id ; out_err = decode error (WIC) |
+| `ImGui_GetTextureSize`           | `int(int tex_id, int* out_wh)`                                        | 0=OK, 1=bad tex_id ; out_wh writes [w, h] |
+| `ImGui_CreateImage`              | `int(id, int tex_id, float w, float h)`                               | 0=OK, 1, 2 — display-only |
+| `ImGui_CreateImageButton`        | `int(id, label, int tex_id, float w, float h)`                        | 0=OK, 1, 2 — clickable via `WasClicked` |
+| `ImGui_CreateImageWithBg`        | `int(id, int tex_id, float w, float h, float bg_r,g,b,a, float tint_r,g,b,a)`    | 0=OK, 1, 2 |
+
+#### Fonts (H.3 + K.3)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_LoadFont`                 | `int(const wchar_t* path, float size_px, int* out_font_id)`           | 0=OK, 1=bad args, 2=load failed, 6=no ctx |
+| `ImGui_LoadFontEx`               | `int(path, float size_px, int glyph_range, int* out_font_id)`         | 0=OK ; glyph_range = `$ImGuiFontGlyphRange_*` (0..8) |
+| `ImGui_LoadFontFromMemory`       | `int(const unsigned char* data, int size, float size_px, int* out_font_id)` | 0=OK ; buffer is copied internally |
+| `ImGui_GetFontCount`             | `int()`                                                               | number of registered fonts |
+| `ImGui_GetFontSize`              | `int(float* out)`                                                     | 0=OK ; current font's native pixel size |
+| `ImGui_CreatePushFont`*          | `int(id, int font_id)`                                                | 0=OK, 1, 2 — marker, paired with PopFont |
+| `ImGui_CreatePopFont`*           | `int(id)`                                                             | 0=OK, 1, 2 — matches a PushFont |
+
+#### Mouse helpers (E.3 + G.x)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_IsMouseDown`              | `int(int button)`                                                     | 0/1 — button = 0/1/2 |
+| `ImGui_IsMouseClicked`           | `int(int button, int repeat)`                                         | 0/1 — frame-state, optional repeat |
+| `ImGui_IsMouseReleased`          | `int(int button)`                                                     | 0/1 — edge frame |
+| `ImGui_IsMouseDoubleClicked`     | `int(int button)`                                                     | 0/1 |
+| `ImGui_IsMouseDragging`          | `int(int button, float threshold)`                                    | 0/1 — threshold<0 uses ImGui default |
+| `ImGui_IsMouseHoveringRect`      | `int(float min_x, float min_y, float max_x, float max_y, int clip)`   | 0/1 — screen-space |
+| `ImGui_IsMousePosValid`          | `int()`                                                               | 0/1 — false if no valid mouse pos |
+| `ImGui_IsAnyMouseDown`           | `int()`                                                               | 0/1 |
+| `ImGui_GetMouseClickedCount`     | `int(int button)`                                                     | click count for current burst |
+| `ImGui_GetMouseCursor`           | `int()`                                                               | current `$ImGuiMouseCursor_*` |
+| `ImGui_SetMouseCursor`           | `int(int cursor_type)`                                                | 0=OK ; -1 releases the override (G.2) |
+| `ImGui_SetNextFrameWantCaptureMouse` | `int(int want)`                                                   | 0=OK |
+| `ImGui_ResetMouseDragDelta`      | `int(int button)`                                                     | 0=OK |
+| `ImGui_IsMouseReleasedWithDelay` | `int(int button, float delay)`                                        | 0/1 — released >= `delay` seconds ago |
+
+#### Keyboard helpers (G.3)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_IsKeyDown`                | `int(int key)`                                                        | 0/1 — key = `$ImGuiKey_*` |
+| `ImGui_IsKeyPressed`             | `int(int key, int repeat)`                                            | 0/1 — frame-state, optional repeat |
+| `ImGui_IsKeyReleased`            | `int(int key)`                                                        | 0/1 |
+| `ImGui_IsKeyChordPressed`        | `int(int key_chord)`                                                  | 0/1 — chord = key OR'd with mod flags |
+| `ImGui_GetKeyPressedAmount`      | `int(int key, float repeat_delay, float rate)`                        | press count this frame |
+| `ImGui_GetKeyName`               | `int(int key, wchar_t* out, int cap)`                                 | 0=OK, 2=invalid key, 4=truncated |
+| `ImGui_SetNextFrameWantCaptureKeyboard` | `int(int want)`                                                | 0=OK |
+
+#### Tables (Phase I + J.x + M.1)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateTable`              | `int(id, int columns, int flags, float outer_w, float outer_h, float inner_w)` | 0=OK, 1, 2 |
+| `ImGui_CreateTableNextRow`*      | `int(id, int row_flags, float min_row_height)`                        | 0=OK, 1, 2 |
+| `ImGui_CreateTableNextColumn`*   | `int(id)`                                                             | 0=OK, 1, 2 |
+| `ImGui_CreateTableSetColumnIndex`* | `int(id, int column_index)`                                         | 0=OK, 1, 2 |
+| `ImGui_CreateTableHeadersRow`*   | `int(id)`                                                             | 0=OK, 1, 2 — emits default headers |
+| `ImGui_CreateTableHeader`*       | `int(id, label)`                                                      | 0=OK, 1, 2 — per-column header |
+| `ImGui_CreateTableAngledHeadersRow`* | `int(id)`                                                         | 0=OK, 1, 2 |
+| `ImGui_CreateTableSetBgColor`*   | `int(id, int target, unsigned int u32, int column_n)`                 | 0=OK, 1, 2 |
+| `ImGui_TableSetupColumn`         | `int(table_id, label, int flags, float init_width_or_weight)`         | 0=OK, 1, 2, 3 (not a table) |
+| `ImGui_TableSetupScrollFreeze`   | `int(table_id, int cols, int rows)`                                   | 0=OK, 1, 2, 3 |
+| `ImGui_TableGetSortSpecs`        | `int(table_id, int* out_spec)`                                        | 0=OK ; out_spec = [col, dir] or [-1, 0] |
+| `ImGui_TableGetSortSpecsN`       | `int(table_id, int* out_pairs, int max_pairs)`                        | number of pairs written (J.x multi-col) |
+| `ImGui_TableSetColumnEnabled`    | `int(table_id, int column_index, int enabled)`                        | 0=OK, 1, 2, 3 |
+| `ImGui_TableGetColumnCount`      | `int(table_id)`                                                       | column count or -1 |
+| `ImGui_CreateTableGetColumnInfo`* | `int(id, int column_n)`                                              | 0=OK, 1, 2 — marker; query via the 3 getters below |
+| `ImGui_GetTableColumnIndex`      | `int(marker_id)`                                                      | resolved column index or -1 |
+| `ImGui_GetTableColumnFlags`      | `int(marker_id, int* out_flags)`                                      | 0=OK, 1, 2 |
+| `ImGui_GetTableColumnName`       | `int(marker_id, wchar_t* out, int cap)`                               | 0=OK, 4=truncated |
+
+#### Window scroll (Phase J.x)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_GetScrollX`               | `int(id, float* out)`                                                 | 0=OK, 1, 2, 3 (not a window) |
+| `ImGui_GetScrollY`               | `int(id, float* out)`                                                 | same |
+| `ImGui_GetScrollMaxX`            | `int(id, float* out)`                                                 | same |
+| `ImGui_GetScrollMaxY`            | `int(id, float* out)`                                                 | same |
+| `ImGui_SetScrollX`               | `int(id, float v)`                                                    | 0=OK, 1, 2, 3 |
+| `ImGui_SetScrollY`               | `int(id, float v)`                                                    | 0=OK, 1, 2, 3 |
+| `ImGui_SetScrollHereX`           | `int(id, float center_ratio)`                                         | 0=OK ; 0.5 = centred |
+| `ImGui_SetScrollHereY`           | `int(id, float center_ratio)`                                         | 0=OK |
+| `ImGui_SetScrollFromPosX`        | `int(id, float local_x, float center_ratio)`                          | 0=OK |
+| `ImGui_SetScrollFromPosY`        | `int(id, float local_y, float center_ratio)`                          | 0=OK |
+
+#### Window extras
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_SetWindowContentSize`     | `int(id, float w, float h)`                                           | 0=OK, 1, 2, 3 |
+| `ImGui_SetWindowScroll`          | `int(id, float x, float y)`                                           | 0=OK, 1, 2, 3 |
+| `ImGui_SetWindowHoveredFlags`    | `int(id, int flags)`                                                  | 0=OK ; persistent flags for `IsWindowHoveredEx` |
+| `ImGui_IsWindowHoveredEx`        | `int(id)`                                                             | 0/1 — uses flags set above |
+
+#### Hover extras (K.1)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateIsItemHoveredEx`*   | `int(id, int flags)`                                                  | 0=OK, 1, 2 — marker after a widget |
+| `ImGui_GetItemHoveredEx`         | `int(marker_id)`                                                      | 0/1 — last sampled state |
+
+#### Tooltips (E.x)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateItemTooltip`*       | `int(id)`                                                             | 0=OK, 1, 2 — container attached to previous item |
+| `ImGui_CreateTooltip`*           | `int(id)`                                                             | 0=OK, 1, 2 — manual tooltip container |
+
+#### Popup mouse pos (E.1.x)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreatePopupOpenMousePos`* | `int(id)`                                                             | 0=OK, 1, 2 — latches mouse pos at OpenPopup |
+| `ImGui_GetPopupOpenMousePos`     | `int(marker_id, float* out_xy)`                                       | 0=OK |
+
+#### Settings (in-memory variants, D.4)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_LoadSettingsFromMemory`   | `int(const wchar_t* ini_data)`                                        | 0=OK, 1=not init, 2=null/empty |
+| `ImGui_SaveSettingsToMemory`     | `int(wchar_t* out, int capacity)`                                     | 0=OK, 4=truncated |
+
+#### Cursor position markers (G.5 + L.3)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateSetCursorPos`*      | `int(id, float local_x, float local_y)`                               | 0=OK, 1, 2 |
+| `ImGui_CreateSetCursorPosX`*     | `int(id, float local_x)`                                              | 0=OK, 1, 2 |
+| `ImGui_CreateSetCursorPosY`*     | `int(id, float local_y)`                                              | 0=OK, 1, 2 |
+| `ImGui_CreateSetCursorScreenPos`* | `int(id, float screen_x, float screen_y)`                            | 0=OK, 1, 2 |
+| `ImGui_CreateGetCursorPos`*      | `int(id)`                                                             | 0=OK, 1, 2 — marker, latches pos during Render |
+| `ImGui_GetCursorPos`             | `int(marker_id, float* out_xy)`                                       | 0=OK, 1, 2 |
+
+#### Style editor / inspectors (G.4 + L.3)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_ShowStyleEditor`          | `int(int show)`                                                       | 0=OK — toggle the built-in style editor window |
+| `ImGui_IsShowingStyleEditor`     | `int()`                                                               | 0/1 — round-trip after X click |
+| `ImGui_CreateShowStyleSelector`* | `int(id, label)`                                                      | 0=OK, 1, 2 — inline Combo (Dark/Light/Classic) |
+| `ImGui_CreateShowFontSelector`*  | `int(id, label)`                                                      | 0=OK, 1, 2 — inline Combo of registered fonts |
+| `ImGui_CreateShowUserGuide`*     | `int(id)`                                                             | 0=OK, 1, 2 — inline help block |
+
+#### Logging API (K.5)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_LogToFile`                | `int(int auto_open_depth, const wchar_t* filename)`                   | 0=OK ; null filename = ImGui default |
+| `ImGui_LogToClipboard`           | `int(int auto_open_depth)`                                            | 0=OK |
+| `ImGui_LogToTTY`                 | `int(int auto_open_depth)`                                            | 0=OK |
+| `ImGui_LogFinish`                | `int()`                                                               | 0=OK |
+| `ImGui_LogText`                  | `int(const wchar_t* text)`                                            | 0=OK — appends raw text to the active log |
+| `ImGui_CreateLogButtons`*        | `int(id)`                                                             | 0=OK, 1, 2 — Log to TTY/File/Clipboard inline buttons |
+
+#### Clip rectangles (K.4)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreatePushClipRect`*      | `int(id, float min_x, float min_y, float max_x, float max_y, int intersect)` | 0=OK, 1, 2 |
+| `ImGui_CreatePopClipRect`*       | `int(id)`                                                             | 0=OK, 1, 2 |
+
+#### Radio button group (K.2)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateRadioButtonGroup`*  | `int(id, label, group_id, int my_value, int default_active)`          | 0=OK, 1, 2 — multiple instances share `group_id` |
+| `ImGui_GetRadioGroupValue`       | `int(group_id, int* out_value)`                                       | 0=OK |
+| `ImGui_SetRadioGroupValue`       | `int(group_id, int value)`                                            | 0=OK |
+
+#### Input double (K.2)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateInputDouble`*       | `int(id, label, double default, double step, double step_fast, const wchar_t* fmt, int flags)` | 0=OK, 1, 2 |
+| `ImGui_GetValueDouble`           | `int(id, double* out)`                                                | 0=OK, 1, 2, 3 |
+| `ImGui_SetValueDouble`           | `int(id, double v)`                                                   | 0=OK, 1, 2, 3 |
+
+#### Debug inline values (L.1 + L.4)
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CreateValueBool`*         | `int(id, prefix, int initial_value)`                                  | 0=OK, 1, 2 — `prefix: true/false` |
+| `ImGui_CreateValueInt`*          | `int(id, prefix, int initial_value)`                                  | 0=OK, 1, 2 |
+| `ImGui_CreateValueFloat`*        | `int(id, prefix, float initial_value, const wchar_t* fmt)`            | 0=OK, 1, 2 |
+
+#### Misc
+
+| Symbol | Signature | Return |
+|--------|-----------|--------|
+| `ImGui_CalcTextSize`             | `int(const wchar_t* text, float wrap_width, float* out_xy)`           | 0=OK ; size in pixels at current font |
+
 \* Auto-generated by `dll/tools/generate.py`. See the [Generator](#generator--widget-categories) section for the mapping details.
 
 All strings are UTF-16 on the DLL side ; the AutoIt wrapper uses `"wstr"` in
@@ -292,11 +537,11 @@ access to the widget tree, in both directions:
 The rest of the shared state is single-thread (DX/ImGui belong to the render
 thread ; `m_running`/`m_stop`/`m_initDone` are `std::atomic`).
 
-Empirically validated by [autoit/concurrency_test.au3](autoit/concurrency_test.au3):
-10 seconds of tight-loop mutations on the AutoIt side (`_ImGui_SetText` with
-no `Sleep`) while the render thread takes the same lock every frame. Result
-on both architectures (x86 + x64): no crashes, the counter stays monotonic,
-the UI stays responsive (drag/collapse/close work during the stress).
+The design has been stress-tested with tight-loop mutations on the AutoIt side
+(`_ImGui_SetText` with no `Sleep`) while the render thread takes the same lock
+every frame. Result on both architectures (x86 + x64): no crashes, the counter
+stays monotonic, the UI stays responsive (drag/collapse/close work during
+the stress).
 
 ## Generator — widget categories
 
@@ -376,106 +621,6 @@ On the AutoIt side this stays transparent: `_ImGui_GetValueFloat($sId)`
 returns the float directly and `SetError(3)` if the widget is not
 float-valued (`@extended` carries the originating DLL code: 2=unknown id,
 3=incompatible type).
-
-### Tests
-
-- [autoit/test_checkbox.au3](autoit/test_checkbox.au3) — `value_bool`:
-  creation, get/set, strict semantics of the `changed` flag.
-- [autoit/test_numeric.au3](autoit/test_numeric.au3) — `value_numeric`:
-  the 6 widgets (Slider/Drag/Input × float/int), live display of values,
-  user-change counters, and a "Reset" button that calls `Set*` on all six
-  widgets and **must not** increment the counters (strict semantics
-  verified for float and int in addition to bool).
-- [autoit/test_display.au3](autoit/test_display.au3) — `display`: purely
-  visual validation (Separator + Spacing in sections, SameLine aligning
-  three buttons, Indent/Unindent shifting a block, Bullet at line start,
-  NewLine forcing a break). No script-side logic to test.
-- [autoit/test_config.au3](autoit/test_config.au3) — `config`: style stack
-  (red buttons via PushStyleColor, wide padding via PushStyleVarVec2,
-  rounded corners via PushStyleVarFloat — all properly reverted after the
-  matching Pop), plus a slider driving `_ImGui_SetFontGlobalScale` live and
-  a button toggling `ImGuiConfigFlags_NavEnableKeyboard`. Validates that
-  global setters cross the inter-thread barrier correctly.
-- [autoit/test_container.au3](autoit/test_container.au3) — `container`:
-  scrollable Child (30 items), foldable CollapsingHeader, 2-tab TabBar with
-  distinct subtrees, expandable TreeNode, Group with SameLine, plus a
-  "Reparent" button that moves a widget dynamically between 2 Childs via
-  `_ImGui_SetParent`. Validates the tree-based parent/children refactor.
-- [autoit/test_window_menu.au3](autoit/test_window_menu.au3) — top-level
-  floating `Window` + `MenuBar`/`Menu`/`MenuItem`: a Debug window separate
-  from the host (movable/resizable, X close), File/Edit menus with items,
-  plus `SetVisible`/`GetVisible`/`SetEnabled` validated via host checkboxes
-  that drive the window's visibility and a target button's enabled state.
-- [autoit/test_list.au3](autoit/test_list.au3) — dynamic `List`: two lists
-  side by side. Static (10 items) to validate selection, scroll, and the
-  programmatic pattern (`SetListSelection` does not latch `HasChanged`).
-  Dynamic (a subset shuffled every 2s from the "Window A..J" master list)
-  to validate **content-based preservation**: select "Window E", wait for
-  a shuffle, "Window E" stays highlighted even if its index changed. If E
-  disappears, the selection drops to `(none)` without incrementing the
-  change counter.
-- [autoit/test_input_text.au3](autoit/test_input_text.au3) — `InputText` /
-  `InputTextMultiline`: 5 single-line fields (free, decimal-only, read-only,
-  password, no-blank) + 1 multiline 3-line field. Buttons `Set free='Hello'`,
-  `Clear all` and `Read all` validate the strict programmatic pattern
-  (writes don't latch) and the `DllStructCreate("wchar buf[N]")` marshalling
-  for `_ImGui_GetValueString`. Snapshot of the 6 values displayed in a Text
-  for visual comparison.
-- [autoit/test_combo.au3](autoit/test_combo.au3) — `Combo`: main "Profile"
-  combo with 5 generic items, validation of click + popup + change counter
-  (only increments on user selection). `Pick 'Option 3'` / `Clear` via
-  `_ImGui_SetListSelection` (same exports as List — the
-  `IndexedSelectionWidget` base unifies them). `Add Option F` /
-  `Remove Option A` repopulates the items via `_ImGui_SetComboItems` and
-  demonstrates content-based preservation. Two secondary combos test
-  `$ImGuiComboFlags_HeightSmall` (popup truncated to 4 items out of 12) and
-  `$ImGuiComboFlags_NoArrowButton`. On the right, an independent `List`
-  serves as a regression control of the `IndexedSelectionWidget` refactor.
-- [autoit/test_selectable.au3](autoit/test_selectable.au3) — `Selectable`:
-  "Item A" validates the double-latching (state + click event on the same
-  click, read via `_ImGui_HasChanged` AND `_ImGui_WasClicked`). Flags
-  section: Disabled (uncloseable, greyed), AllowDoubleClick (only reacts
-  to double-click), Highlight (rendered permanently as hover).
-  **Radio-button-style group** of 4 Selectables: exclusivity handled in
-  the script via `_ImGui_SetValueBool` on the others; critical test of
-  strict semantics — the cascade of SetValueBool must not retrigger clicks
-  (otherwise infinite loop). "Toggle A programmatically" button validates
-  that looping writes never increments the counters.
-
-### Comprehensive example
-
-- [autoit/test_extras.au3](autoit/test_extras.au3) — **Phase A+B (Item
-  queries, tooltips, text variants, button variants, CheckboxFlags,
-  numeric vectors, ProgressBar, Color, Plot)**: 7 tabs. *Queries*
-  hover/click/focus latched via `_ImGui_IsHovered/IsActive/IsFocused`,
-  tooltips on hover via `_ImGui_SetTooltip`. *Text*: 6 Text variants
-  (Colored RGB, Wrapped, Disabled, LabelText key:value, BulletText,
-  SeparatorText). *Buttons*: 4 ArrowButtons L/R/U/D, InvisibleButton with
-  counter, RadioButton group of 3 with script-side exclusivity,
-  CheckboxFlags Read/Write/Execute sharing a synchronized int mask across
-  the 3 boxes. *Vectors*: SliderFloat3 + DragInt2 + InputFloat4 with live
-  read-back via `_ImGui_GetValueFloatN/IntN`. *Progress*: ProgressBar
-  animated 0↔1 + 3 direct-set buttons. *Color*: ColorEdit4 + ColorPicker3
-  (HueWheel) with read-back of the selected color. *Plot*: PlotLines
-  (animated sinusoid) + PlotHistogram (random) repopulated every second
-  via `_ImGui_SetPlotValues`. Demonstrates the full Phase A+B surface.
-
-### End-to-end example
-
-- [autoit/example_bot_panel.au3](autoit/example_bot_panel.au3) — a full
-  application panel built end-to-end on the API: MenuBar with File/View,
-  TabBar with Main/Settings/Log, action buttons (Start/Pause/Stop), Combo
-  with profiles, InputText for a target, **live window list** updated
-  every 2s via `WinList()` (scroll and selection survive refreshes thanks
-  to content-based preservation), sliders + checkboxes in Settings,
-  **ReadOnly InputTextMultiline** as a timestamped log, live status bar
-  at the bottom, and **top-level Debug window** toggleable via menu OR
-  checkbox (bidirectionally synchronised). Also calls
-  `_ImGui_SetUnfocusedFps(15)` to demonstrate the polish pattern. Single
-  loop with `Sleep(50)` — shows that the script can block its thread
-  without freezing the UI.
-
-Feedback flows entirely through the UI (no `ConsoleWrite`, no `ToolTip`).
 
 ### Render thread architecture
 
@@ -582,8 +727,7 @@ field).
 **Strict semantics reminder.** `_ImGui_SetValueString` never latches
 `HasChanged`; same for initial writes via `default_value` at creation.
 Only a user edit in `Render()` (= `ImGui::InputText` returning `true`)
-latches the flag. Verified in `test_input_text.au3` via counters that
-only move on keyboard input.
+latches the flag.
 
 ## Multi-instance (several scripts in parallel)
 
@@ -684,10 +828,6 @@ as namespace-global `std::atomic<bool>` in `render_thread.cpp`, OR-merged
 after each pass (host + top-level Windows) at frame end. No mutex
 required AutoIt-side to read them.
 
-Interactive validation: [autoit/test_item_queries.au3](autoit/test_item_queries.au3)
-shows live all flags for 3 widgets (Button, Slider, InputText), with
-edge counters to verify they fire exactly once.
-
 ### Debug windows + version (D.2)
 
 5 built-in ImGui debug windows are drivable via atomic setters:
@@ -704,7 +844,7 @@ The render thread tests each atomic at the end of `RenderHostWindow()`
 and calls the matching `ImGui::Show*Window(&p_open)` with a `bool*` that
 round-trips: if the user closes the window via its X, the atomic flips
 to False and `_ImGui_IsShowing*()` reflects the state. Typical script
-pattern (see [test_debug_windows.au3](autoit/test_debug_windows.au3)):
+pattern:
 
 ```autoit
 If _ImGui_HasChanged("cb_demo") Then _ImGui_ShowDemoWindow(_ImGui_GetValueBool("cb_demo"))
@@ -812,10 +952,6 @@ needed.
 `is_appearing` etc. according to what ImGui actually returns. No silent
 loop possible.
 
-Validation: [autoit/test_window_manip.au3](autoit/test_window_manip.au3):
-9 setter buttons + 6 live queries + an `IsAppearing` edge counter to
-verify it fires on each hide→show.
-
 ### Settings persistence (D.4)
 
 ImGui natively saves position/size/collapsed-state of top-level
@@ -844,11 +980,6 @@ applied their initial state — Load has no effect on them. To handle this
 case, manually call `_ImGui_SetWindowPos/Size/Collapsed` after the Load
 with the desired values. The canonical pattern (Load before Create) is
 the simplest.
-
-Validation: [autoit/test_settings.au3](autoit/test_settings.au3) — first
-run positions the window at the default location, the user moves it and
-clicks Save, the restart repositions it automatically. "Delete .ini"
-button to reset between tests.
 
 ### Menu extensions (D.5)
 
@@ -891,11 +1022,6 @@ This requires two changes to the render thread:
 - Host uses `main_viewport->WorkPos/WorkSize` instead of `Pos/Size`.
 - Pass 1 and 2 skip MainMenuBarWidgets (already rendered in pre-pass).
 
-Validation: [autoit/test_menu.au3](autoit/test_menu.au3) — MainMenuBar
-with 2 menus (File + View), items with shortcut hints (`Ctrl+S`),
-toggleable items with HasChanged/WasClicked counters verifying strict
-semantics.
-
 ### Tree extensions (D.6)
 
 `TreeNodeWidget` and `CollapsingHeaderWidget` moved out of the generator
@@ -937,11 +1063,6 @@ seed once then let the user toggle freely.
 arrow/header makes `IsItemToggledOpen()` return true (the widget
 records it just after the `TreeNodeEx/CollapsingHeader` call, before
 walking children, to avoid a child's last-item shadowing the query).
-
-Validation: [autoit/test_treenode.au3](autoit/test_treenode.au3) —
-TreeNode with DefaultOpen / Leaf / SpanAvailWidth, CollapsingHeader
-with and without X, Force-open/close + Pin (Cond_Always) + Seed once
-(Cond_Once), toggle counters that only advance on user toggle.
 
 ### Tab extensions (D.7)
 
@@ -986,10 +1107,6 @@ via `_ImGui_WasClicked($sId)`, identical to any Button.
 `SetVisible` latches `WasClicked`/`HasChanged`. Only a real click on a
 TabItemButton or selection of a TabItem by the user advances these
 counters.
-
-Validation: [autoit/test_tabs.au3](autoit/test_tabs.au3) — TabBar with
-Reorderable/AutoSelect/Overline, `UnsavedDocument` tab (dot), Closable
-X, Bye + SetTabItemClosed, TabItemButton Leading "≡" / Trailing "+".
 
 ### Popups / Modals (E.1)
 
@@ -1036,11 +1153,6 @@ call SetVisible(True) explicitly.
 else — context popups + chain trigger — is delivered in E.1.x (next
 section).
 
-Validation: [autoit/test_popups.au3](autoit/test_popups.au3) — simple
-popup + modal without X + modal with X, dim background on modals,
-IsPopupOpen live, OpenPopup/ClosePopup counters verifying strict
-semantics.
-
 ### Context popups + OpenPopupOnItemClick (E.1.x)
 
 Extension of [dll/src/popup_extras.{h,cpp}](dll/src/popup_extras.h) with two
@@ -1085,11 +1197,6 @@ in ImGui (since 1.92.6). Force left with `$ImGuiPopupFlags_MouseButtonLeft`.
   host itself.
 - `kind=Void`: anywhere (the trigger requires that no window be
   hovered at release time).
-
-Validation: [autoit/test_context_popups.au3](autoit/test_context_popups.au3)
-— the 3 kinds in action (Item on Button, Window in Child, Void at
-root) + chain marker left-click on Button → top-level PopupWidget
-(`p_chained`), proving the cross-pass bypass.
 
 ### Layout extras + Focus helpers + Constants (F.1 + F.2 + F.3)
 
@@ -1140,14 +1247,6 @@ blocks `$ImGuiChildFlags_*`, `$ImGuiHoveredFlags_*`,
 `$ImGuiCol_PlotLines = 41` (1.92.8 master values), switch back to the
 named constants — these two values became respectively `36` (unchanged,
 but surrounded by `35=TabHovered`) and `44` (was 41).
-
-Validation: [autoit/test_f_extras.au3](autoit/test_f_extras.au3) — 10
-sections covering ItemWidth + SetNextItemWidth, PushTextWrapPos,
-PushItemFlag(NoTabStop), PushStyleVarX, Dummy +
-AlignTextToFramePadding, SetItemDefaultFocus in Popup,
-SetKeyboardFocusHere auto-focus, SetNextItemAllowOverlap,
-GetTime/GetFrameCount/GetStyleColorName live, Dark/Light/Classic theme
-switcher.
 
 ### Finishing mix (G.1 to G.6)
 
@@ -1222,11 +1321,6 @@ which an immediate CalcTextSize call from the AutoIt thread would
 dereference a null pointer). `GImGui` is NOT thread-local in our build
 (`IMGUI_USE_BX_THREAD_LOCAL_CONTEXT` not defined), so the AutoIt thread
 sees the same context.
-
-Validation: [autoit/test_g_extras.au3](autoit/test_g_extras.au3) — 6
-sections covering TextLink + click counter, SetMouseCursor sticky
-hover, IsKey* Down/Press/Release readouts, ShowStyleEditor with X
-round-trip, SetCursorPosX(200) + GetCursorPos latch, CalcTextSize live.
 
 **Simultaneous hardening (race fixes)**: Phase G also reinforced the
 concurrency model — the `g_tree.mtx` mutex became `std::recursive_mutex`,
@@ -1308,11 +1402,7 @@ BEFORE `CleanupDeviceD3D` to avoid dangling COM refs. 4 exports:
 `LoadTexture`, `GetTextureSize`, `CreateImage`, `CreateImageButton`.
 `ImageWidget` is display-only; `ImageButtonWidget` inherits
 ClickableWidget → standard `_ImGui_WasClicked`. Bad tex_id = Dummy hit
-area + TextDisabled placeholder, no crash. Tests:
-[autoit/test_scroll.au3](autoit/test_scroll.au3),
-[autoit/test_tooltips_rich.au3](autoit/test_tooltips_rich.au3),
-[autoit/test_fonts.au3](autoit/test_fonts.au3),
-[autoit/test_images.au3](autoit/test_images.au3).
+area + TextDisabled placeholder, no crash.
 
 ### Phase I — Tables
 
@@ -1384,10 +1474,6 @@ While _ImGui_IsRunning()
 WEnd
 ```
 
-Test: [autoit/test_tables.au3](autoit/test_tables.au3) — 3 sections
-(basic 3×5 + sortable 8-row scoreboard + ScrollY 50-row with frozen
-header row).
-
 ### Phase J — Helpers roundout
 
 No new container, just broadening of the free-function surface plus a
@@ -1456,9 +1542,6 @@ into Registry / custom INI / save file profile):
 (col, dir) in priority order for `$ImGuiTableFlags_SortMulti`
 (Shift+click headers). Latched in parallel with the existing single-col
 (I.3) — `_ImGui_TableGetSortSpecs` is still there for back-compat.
-
-Test: [autoit/test_phase_j.au3](autoit/test_phase_j.au3) — 6 isolated
-sections.
 
 ### Phase K — Targeted extensions
 
@@ -1563,10 +1646,6 @@ immediately but the log is only effectively active on the next frame;
 the logged widgets will be those of the next frame. `LogText` itself
 is immediate.
 
-Test: [autoit/test_phase_k.au3](autoit/test_phase_k.au3) — 5 isolated
-sections (hover + RadioGroup + InputDouble + Cyrillic + memory font +
-clip + logging).
-
 ### Phase L — Low-value niches
 
 Final MVP phase: 4 sub-phases, ~7 new exports, hand-written except
@@ -1626,10 +1705,6 @@ _ImGui_CreateValueInt("loop_count", "Loop", 0)
 ; in loop:
 _ImGui_SetValueInt("loop_count", $iIter)   ; display becomes "Loop: 42"
 ```
-
-Test: [autoit/test_phase_l.au3](autoit/test_phase_l.au3) — 4 isolated
-sections with a safe URL and a refused `file://` URL to demonstrate the
-whitelist.
 
 ### Phase M — Remaining items (100% useful coverage)
 
@@ -1762,9 +1837,6 @@ a marker widget (pivot from the initial design — detailed below).
   Local $aPos = _ImGui_GetPopupOpenMousePos("p_capture")
   _ImGui_SetText("p_pos", "captured at (" & $aPos[0] & ", " & $aPos[1] & ")")
   ```
-
-Test: [autoit/test_phase_m.au3](autoit/test_phase_m.au3) — 4 sections
-covering the 4 sub-phases. Exit 0 clean on x64 + x86.
 
 ## Numeric vectors
 

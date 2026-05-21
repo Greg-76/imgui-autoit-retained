@@ -114,7 +114,7 @@ struct Widget {
     // Read+reset the latched "value changed" flag. Set only by user-driven
     // interaction inside Render() (e.g. ImGui::Checkbox returning true).
     // Programmatic SetValue* from AutoIt deliberately does NOT latch this
-    // flag — mirrors ConsumeClick semantics so the bot doesn't see its own
+    // flag — mirrors ConsumeClick semantics so the script doesn't see its own
     // writes as notifications.
     virtual bool ConsumeChanged() { return false; }
 

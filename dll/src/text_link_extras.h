@@ -5,7 +5,7 @@
 // L.2 — TextLink that opens an URL on click via ShellExecuteW. SECURITY :
 // the URL is checked against a strict whitelist (http://, https:// only).
 // Any other scheme (file://, javascript:, mailto:, ftp://, custom protocols,
-// …) is silently ignored. This matters because a bot panel may construct
+// …) is silently ignored. This matters because the script may construct
 // URLs dynamically from external data ; allowing file:// would let a poisoned
 // payload trigger arbitrary local executions via "file://C:/Windows/System32/cmd.exe".
 //
