@@ -4,6 +4,19 @@
 Global $__g_hImGuiDll = -1
 Global $__g_sImGuiDllPath = ""   ; override before _ImGui_Init() to force a path
 
+; Event-subscription state ; consumed by _ImGui_SetOnClick / _ImGui_SetOnChange
+; / _ImGui_SetOnDoubleClick. The pump is registered lazily on the first Set*
+; call and unregistered by _ImGui_Shutdown ; scripts never see the
+; AdlibRegister underneath.
+Global $__g_aOnClick[16][2]         ; [id, funcname]
+Global $__g_aOnChange[16][2]
+Global $__g_aOnDoubleClick[16][2]
+Global $__g_iOnClickCount        = 0
+Global $__g_iOnChangeCount       = 0
+Global $__g_iOnDoubleClickCount  = 0
+Global $__g_bEventPumpActive = False
+Global Const $__g_iEventPumpRateMs = 50
+
 ; --- ImGuiCol_ (PushStyleColor) ----------------------------------------------
 ; Sequential 0-based enum positions in imgui-docking/imgui.h.
 Global Const $ImGuiCol_Text                       = 0
@@ -736,6 +749,13 @@ EndFunc
 ; ===============================================================================================================================
 Func _ImGui_Shutdown()
     If $__g_hImGuiDll = -1 Then Return
+    If $__g_bEventPumpActive Then
+        AdlibUnRegister("__ImGui_PumpEvents")
+        $__g_bEventPumpActive = False
+    EndIf
+    $__g_iOnClickCount       = 0
+    $__g_iOnChangeCount      = 0
+    $__g_iOnDoubleClickCount = 0
     DllCall($__g_hImGuiDll, "int:cdecl", "ImGui_Shutdown")
     DllClose($__g_hImGuiDll)
     $__g_hImGuiDll = -1
@@ -770,6 +790,207 @@ Func _ImGui_WasClicked($sId)
     Local $aRet = DllCall($__g_hImGuiDll, "int:cdecl", "ImGui_WasClicked", "wstr", $sId)
     If @error Then Return False
     Return ($aRet[0] = 1)
+EndFunc
+
+; #FUNCTION# ====================================================================================================================
+; Name...........: _ImGui_WasDoubleClicked
+; Description ...: Consume the "user just double-clicked this widget" edge
+; Syntax.........: _ImGui_WasDoubleClicked($sId)
+; Parameters ....: $sId         - Stable widget identifier (must be unique in the tree)
+; Return values .: Returns True exactly once per detected double-click, then re-arms. False on missing widget or DLL not loaded.
+; Information ...: Companion to _ImGui_WasClicked. Detection is performed by the render thread at the exact frame of the
+;                  press event (via ImGui::IsMouseDoubleClicked), so the result is reliable regardless of the AutoIt-side
+;                  polling cadence. Only widgets whose Render() opts in (today : Selectable with AllowDoubleClick) actually
+;                  raise this flag ; others always return False here.
+; ===============================================================================================================================
+Func _ImGui_WasDoubleClicked($sId)
+    If $__g_hImGuiDll = -1 Then Return False
+    Local $aRet = DllCall($__g_hImGuiDll, "int:cdecl", "ImGui_WasDoubleClicked", "wstr", $sId)
+    If @error Then Return False
+    Return ($aRet[0] = 1)
+EndFunc
+
+; --- Event subscriptions (OnEvent-style API) ---------------------------------
+; Mimic AutoIt's native `Opt("GUIOnEventMode", 1) + GUICtrlSetOnEvent` for
+; ImGui widgets. The script binds a function to a widget id ; the wrapper
+; calls it (with $sId as the only argument) every time the matching latched
+; flag fires.
+;
+; The script's main loop stays minimal :
+;     While _ImGui_IsRunning()
+;         Sleep(50)
+;     WEnd
+;
+; Internally a single AdlibRegister polls the latched WasClicked / HasChanged
+; flags and dispatches to the registered user functions. It is started
+; lazily on the first Set* call and unregistered by _ImGui_Shutdown.
+
+; #FUNCTION# ====================================================================================================================
+; Name...........: _ImGui_SetOnClick
+; Description ...: Bind a function to be invoked when the widget reports a click
+; Syntax.........: _ImGui_SetOnClick($sId, $sFuncName)
+; Parameters ....: $sId         - Stable widget identifier
+;                  $sFuncName   - Name of an AutoIt Func ; pass "" to unbind
+; Return values .: Success - True. Failure - False (@error = 1=DLL not loaded, 2=$sId empty)
+; Information ...: The handler receives $sId as its only argument :
+;                      Func _OnButtonClicked($sId)
+;                          MsgBox(0, "Click", "Widget " & $sId & " was clicked.")
+;                      EndFunc
+;                      _ImGui_SetOnClick("btn_quit", "_OnButtonClicked")
+;                  Re-binding the same id replaces the previous handler.
+; ===============================================================================================================================
+Func _ImGui_SetOnClick($sId, $sFuncName)
+    If $__g_hImGuiDll = -1 Then Return SetError(1, 0, False)
+    If $sId = "" Then Return SetError(2, 0, False)
+    Local $iIdx = -1, $i
+    For $i = 0 To $__g_iOnClickCount - 1
+        If $__g_aOnClick[$i][0] = $sId Then
+            $iIdx = $i
+            ExitLoop
+        EndIf
+    Next
+    If $sFuncName = "" Then
+        ; Unbind. Shift remaining entries down.
+        If $iIdx = -1 Then Return True
+        For $i = $iIdx To $__g_iOnClickCount - 2
+            $__g_aOnClick[$i][0] = $__g_aOnClick[$i + 1][0]
+            $__g_aOnClick[$i][1] = $__g_aOnClick[$i + 1][1]
+        Next
+        $__g_iOnClickCount -= 1
+        Return True
+    EndIf
+    If $iIdx = -1 Then
+        If $__g_iOnClickCount >= UBound($__g_aOnClick) Then
+            ReDim $__g_aOnClick[$__g_iOnClickCount + 16][2]
+        EndIf
+        $__g_aOnClick[$__g_iOnClickCount][0] = $sId
+        $__g_aOnClick[$__g_iOnClickCount][1] = $sFuncName
+        $__g_iOnClickCount += 1
+    Else
+        $__g_aOnClick[$iIdx][1] = $sFuncName
+    EndIf
+    __ImGui_StartEventPump()
+    Return True
+EndFunc
+
+; #FUNCTION# ====================================================================================================================
+; Name...........: _ImGui_SetOnChange
+; Description ...: Bind a function to be invoked when the widget value changes
+; Syntax.........: _ImGui_SetOnChange($sId, $sFuncName)
+; Parameters ....: $sId         - Stable widget identifier
+;                  $sFuncName   - Name of an AutoIt Func ; pass "" to unbind
+; Return values .: Success - True. Failure - False (@error = 1=DLL not loaded, 2=$sId empty)
+; Information ...: Same pattern as _ImGui_SetOnClick but driven by HasChanged.
+;                  Strict semantics : programmatic Set* never fire OnChange ;
+;                  only user interaction in Render() does.
+; ===============================================================================================================================
+Func _ImGui_SetOnChange($sId, $sFuncName)
+    If $__g_hImGuiDll = -1 Then Return SetError(1, 0, False)
+    If $sId = "" Then Return SetError(2, 0, False)
+    Local $iIdx = -1, $i
+    For $i = 0 To $__g_iOnChangeCount - 1
+        If $__g_aOnChange[$i][0] = $sId Then
+            $iIdx = $i
+            ExitLoop
+        EndIf
+    Next
+    If $sFuncName = "" Then
+        If $iIdx = -1 Then Return True
+        For $i = $iIdx To $__g_iOnChangeCount - 2
+            $__g_aOnChange[$i][0] = $__g_aOnChange[$i + 1][0]
+            $__g_aOnChange[$i][1] = $__g_aOnChange[$i + 1][1]
+        Next
+        $__g_iOnChangeCount -= 1
+        Return True
+    EndIf
+    If $iIdx = -1 Then
+        If $__g_iOnChangeCount >= UBound($__g_aOnChange) Then
+            ReDim $__g_aOnChange[$__g_iOnChangeCount + 16][2]
+        EndIf
+        $__g_aOnChange[$__g_iOnChangeCount][0] = $sId
+        $__g_aOnChange[$__g_iOnChangeCount][1] = $sFuncName
+        $__g_iOnChangeCount += 1
+    Else
+        $__g_aOnChange[$iIdx][1] = $sFuncName
+    EndIf
+    __ImGui_StartEventPump()
+    Return True
+EndFunc
+
+; #FUNCTION# ====================================================================================================================
+; Name...........: _ImGui_SetOnDoubleClick
+; Description ...: Bind a function to be invoked when the widget reports a double-click
+; Syntax.........: _ImGui_SetOnDoubleClick($sId, $sFuncName)
+; Parameters ....: $sId         - Stable widget identifier
+;                  $sFuncName   - Name of an AutoIt Func ; pass "" to unbind
+; Return values .: Success - True. Failure - False (@error = 1=DLL not loaded, 2=$sId empty)
+; Information ...: Companion to _ImGui_SetOnClick : fires only on detected double-clicks (typically Selectable
+;                  with $ImGuiSelectableFlags_AllowDoubleClick). Detection happens on the render thread at the
+;                  exact frame of the press, so it works reliably regardless of polling cadence. Binding both
+;                  OnClick and OnDoubleClick on the same widget is supported : both will fire when a double-click
+;                  happens (OnClick from the first click of the burst, OnDoubleClick from the second).
+; ===============================================================================================================================
+Func _ImGui_SetOnDoubleClick($sId, $sFuncName)
+    If $__g_hImGuiDll = -1 Then Return SetError(1, 0, False)
+    If $sId = "" Then Return SetError(2, 0, False)
+    Local $iIdx = -1, $i
+    For $i = 0 To $__g_iOnDoubleClickCount - 1
+        If $__g_aOnDoubleClick[$i][0] = $sId Then
+            $iIdx = $i
+            ExitLoop
+        EndIf
+    Next
+    If $sFuncName = "" Then
+        If $iIdx = -1 Then Return True
+        For $i = $iIdx To $__g_iOnDoubleClickCount - 2
+            $__g_aOnDoubleClick[$i][0] = $__g_aOnDoubleClick[$i + 1][0]
+            $__g_aOnDoubleClick[$i][1] = $__g_aOnDoubleClick[$i + 1][1]
+        Next
+        $__g_iOnDoubleClickCount -= 1
+        Return True
+    EndIf
+    If $iIdx = -1 Then
+        If $__g_iOnDoubleClickCount >= UBound($__g_aOnDoubleClick) Then
+            ReDim $__g_aOnDoubleClick[$__g_iOnDoubleClickCount + 16][2]
+        EndIf
+        $__g_aOnDoubleClick[$__g_iOnDoubleClickCount][0] = $sId
+        $__g_aOnDoubleClick[$__g_iOnDoubleClickCount][1] = $sFuncName
+        $__g_iOnDoubleClickCount += 1
+    Else
+        $__g_aOnDoubleClick[$iIdx][1] = $sFuncName
+    EndIf
+    __ImGui_StartEventPump()
+    Return True
+EndFunc
+
+; Internal : start the periodic poll the first time someone subscribes.
+; Idempotent.
+Func __ImGui_StartEventPump()
+    If $__g_bEventPumpActive Then Return
+    AdlibRegister("__ImGui_PumpEvents", $__g_iEventPumpRateMs)
+    $__g_bEventPumpActive = True
+EndFunc
+
+; Internal : called by AdlibRegister every $__g_iEventPumpRateMs ms on the
+; AutoIt main thread. Consumes the latched flags and dispatches to user funcs.
+Func __ImGui_PumpEvents()
+    If $__g_hImGuiDll = -1 Then Return
+    Local $i
+    For $i = 0 To $__g_iOnClickCount - 1
+        If _ImGui_WasClicked($__g_aOnClick[$i][0]) Then
+            Call($__g_aOnClick[$i][1], $__g_aOnClick[$i][0])
+        EndIf
+    Next
+    For $i = 0 To $__g_iOnChangeCount - 1
+        If _ImGui_HasChanged($__g_aOnChange[$i][0]) Then
+            Call($__g_aOnChange[$i][1], $__g_aOnChange[$i][0])
+        EndIf
+    Next
+    For $i = 0 To $__g_iOnDoubleClickCount - 1
+        If _ImGui_WasDoubleClicked($__g_aOnDoubleClick[$i][0]) Then
+            Call($__g_aOnDoubleClick[$i][1], $__g_aOnDoubleClick[$i][0])
+        EndIf
+    Next
 EndFunc
 
 ; --- Item queries ------------------------------------------------------------

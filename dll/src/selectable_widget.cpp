@@ -20,6 +20,10 @@ void SelectableWidget::Render()
                           ImVec2(size_x, size_y))) {
         changed = true;
         clicked = true;
+        // Capture double-click state at the exact frame of the click.
+        // OR-style : a later single click in the same poll period must not
+        // reset a double-click that already happened.
+        if (ImGui::IsMouseDoubleClicked(0)) double_clicked = true;
     }
     ImGui::PopID();
     if (!enabled) ImGui::EndDisabled();

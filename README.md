@@ -100,6 +100,7 @@ DllCall to the matching architecture.
 | `ImGui_CreateButton`*  | `int(const wchar_t* id, const wchar_t* label)`                        | 0 = OK, 1 = invalid id, 2 = duplicate             |
 | `ImGui_CreateSmallButton`* | `int(const wchar_t* id, const wchar_t* label)`                    | 0 = OK, 1 = invalid id, 2 = duplicate             |
 | `ImGui_WasClicked`     | `int(const wchar_t* id)`                                              | 1 = pending click (consumed)                      |
+| `ImGui_WasDoubleClicked` | `int(const wchar_t* id)`                                            | 1 = pending double-click (consumed) ; widget must opt in (Selectable with AllowDoubleClick) |
 | `ImGui_CreateCheckbox`*| `int(const wchar_t* id, const wchar_t* label, int default_value)`     | 0 = OK, 1 = invalid id, 2 = duplicate             |
 | `ImGui_GetValueBool`   | `int(const wchar_t* id)`                                              | 0/1, or -1 if unknown / not bool-valued           |
 | `ImGui_SetValueBool`   | `int(const wchar_t* id, int value)`                                   | 0 = OK, 1 = invalid id, 2 = unknown, 3 = type     |

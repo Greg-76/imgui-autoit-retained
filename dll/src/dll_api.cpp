@@ -453,6 +453,22 @@ IMGUI_API_EXPORT int __cdecl ImGui_WasClicked(const wchar_t* id)
     return w->ConsumeClick() ? 1 : 0;
 }
 
+// Companion to ImGui_WasClicked : consumes a separate double-click latch
+// set by widgets that support the AllowDoubleClick flag (Selectable today,
+// other clickables later). Detection happens on the render thread at the
+// exact frame the user double-clicks, so it is reliable regardless of the
+// AutoIt-side polling cadence (unlike a script-side ImGui_IsMouseDoubleClicked
+// query, which races against the single-frame IO state).
+IMGUI_API_EXPORT int __cdecl ImGui_WasDoubleClicked(const wchar_t* id)
+{
+    if (!id || !*id) return 0;
+    std::string uid = WideToUtf8(id);
+    std::lock_guard<std::recursive_mutex> lk(g_tree.mtx);
+    Widget* w = g_tree.Find(uid);
+    if (!w) return 0;
+    return w->ConsumeDoubleClick() ? 1 : 0;
+}
+
 // Generic for any widget exposing a bool value (Checkbox today; later anything
 // derived from BoolValueWidget). Returns -1 if the id is unknown OR the widget
 // is not bool-valued â€” AutoIt wrapper turns that into SetError(3).
